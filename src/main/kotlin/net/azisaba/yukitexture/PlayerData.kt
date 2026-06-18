@@ -9,7 +9,7 @@ data class PlayerData(val uuid: UUID, val username: String, val childServer: Str
         private val gson = Gson()
 
         fun getByUUID(uuid: UUID): PlayerData? {
-            (JavaPlugin.getPlugin(YukiTexture::class.java).jedisBox ?: return null).jedisPool.resource.use { jedis ->
+            (JavaPlugin.getPlugin(YukiTexture::class.java).jedisBox ?: return null).getJedisPool().getResource().use { jedis ->
                 val rawData = jedis.get("velocity-redis-bridge:player:$uuid") ?: return null
                 return gson.fromJson(rawData, PlayerData::class.java)
             }

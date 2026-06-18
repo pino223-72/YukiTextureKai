@@ -8,29 +8,24 @@ import net.azisaba.yukitexture.command.TextureCommand
 import net.azisaba.yukitexture.listener.TextureListener
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.HoverEvent
+//import io.papermc.paper.resource.ResourcePackInfo
+//import io.papermc.paper.resource.ResourcePackRequest
+import net.kyori.adventure.resource.ResourcePackInfo
+import net.kyori.adventure.resource.ResourcePackRequest
 import org.apache.commons.codec.digest.DigestUtils
 import org.bukkit.command.CommandSender
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Player
 import org.bukkit.plugin.java.JavaPlugin
+import java.net.URI
 import org.bukkit.ChatColor as CC
 
 class YukiTexture : JavaPlugin() {
     private val prefix = "${CC.GRAY}[${CC.RED}$name${CC.GRAY}]${CC.RESET}"
 
-    /**
-     * Texture pack URL
-     */
     lateinit var tex: String
-
-    /**
-     * SHA-1 hash
-     * null means undefined and the resource pack needs to be downloaded before sending request to client.
-     */
     private var sha1: String? = null
-
     var jedisBox: JedisBox? = null
-
     private var config: YamlConfiguration? = null
 
     fun getTextureConfig(reload: Boolean = false): YamlConfiguration {
@@ -47,18 +42,13 @@ class YukiTexture : JavaPlugin() {
         val yaml = getTextureConfig(true)
         tex = yaml.getString("url") ?: ""
         if (tex.isNotBlank()) logger.info("リソースパックのURLを $tex に設定しました。")
-
-        // reset sha1 hash, so we can re-download the resource pack and calculate the sha1 hash again
         sha1 = null
-
         sender?.sendMessage("$prefix ${CC.GREEN}リソースパックのURLを再読み込みしました。")
     }
 
     fun applyTex(player: Player) {
         if (tex.isBlank()) return
 
-        // update sha1 hash of resource pack only if sha1 hash is not calculated yet
-        // but disable this for now
         if (true || sha1 === null) {
             val (_, response, result) = FuelManager()
                 .addRequestInterceptor { next: (Request) -> Request ->
@@ -73,16 +63,16 @@ class YukiTexture : JavaPlugin() {
                     player.sendActionBar(Component.text("リソースパックをダウンロード中... ($percent %)"))
                 }
                 .response()
-            val joinedHeaders =
-                response.headers
-                    .entries
-                    .joinToString("\n") {
-                        "${CC.AQUA}${it.key}: ${CC.RESET}${it.value.joinToString(" ")}"
-                    }
+
+            val joinedHeaders = response.headers.entries.joinToString("\n") {
+                "${CC.AQUA}${it.key}: ${CC.RESET}${it.value.joinToString(" ")}"
+            }
             player.sendMessage(
                 Component.text("$prefix レスポンスは ")
-                    .append(Component.text("${response.statusCode} (${response.responseMessage})")
-                        .hoverEvent(HoverEvent.showText(Component.text("${CC.YELLOW}URL: ${CC.RESET}${response.url}\n$joinedHeaders"))))
+                    .append(
+                        Component.text("${response.statusCode} (${response.responseMessage})")
+                            .hoverEvent(HoverEvent.showText(Component.text("${CC.YELLOW}URL: ${CC.RESET}${response.url}\n$joinedHeaders")))
+                    )
                     .append(Component.text("です。"))
             )
             if (result is Result.Failure) {
@@ -91,12 +81,26 @@ class YukiTexture : JavaPlugin() {
             }
             sha1 = DigestUtils.sha1Hex(result.get())
         }
-        player.sendTitle("", "プレイヤーのリソースパックを変更中...", 0, 100, 20)
-        player.setResourcePack(tex, sha1 ?: "")
+
+        val packInfo = ResourcePackInfo.resourcePackInfo()
+            .uri(URI.create(tex))
+            .hash(sha1!!)
+            .build()
+
+        val request = ResourcePackRequest.resourcePackRequest()
+            .packs(packInfo)
+            .required(false)
+            .prompt(Component.text("リソースパックを適用しています..."))
+            .build()
+
+        player.sendResourcePacks(request)
+
         player.sendMessage(
             Component.text(prefix)
-                .append(Component.text("${CC.GREEN}完了しました。")
-                    .hoverEvent(HoverEvent.showText(Component.text("SHA-1: $sha1"))))
+                .append(
+                    Component.text("${CC.GREEN}完了しました。")
+                        .hoverEvent(HoverEvent.showText(Component.text("SHA-1: $sha1")))
+                )
         )
     }
 
@@ -111,7 +115,7 @@ class YukiTexture : JavaPlugin() {
         try {
             logger.info("Trying $host:$port...")
             jedisBox = JedisBox(host, port, user, password)
-            jedisBox?.jedisPool?.resource?.use { it.get("something") }
+            jedisBox?.getJedisPool()?.getResource()?.use { it.get("something") }
             logger.info("Redisに接続しました。")
         } catch (e: Exception) {
             logger.warning("Redisに接続できませんでした。データベースなしで続行します。")
